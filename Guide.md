@@ -54,6 +54,14 @@
 
 ## 2.3. LLM Usage
 
+## 2.4. Version Control
+
+Version control is recommended to track the progress, document changes and experiments, and ensure result reproducibility.
+
+- **Naming Convention:** One recommended method is saving your notebook after each change and run using a naming format such as `<score>_<Applied_Techniques/Hyperparameters>`.
+- **Sync Weights with Notebooks:** Always save the model checkpoints with the exact same name as the notebook to easily match the best weights for final inference.
+- **Keep a Quick Log:** Maintain a brief note for tracking to avoid duplicating experiments.
+
 ## 2.5. Strategy 
 
 ### What to Do First
@@ -70,6 +78,6 @@ Each team will be provided with 2 computers and 6 hours to train the best model.
 
 - Dedicate 1 computer to data analysis and processing, while using the other computer to analyze the baseline model and results.
 - After completing data processing, train the baseline model to see if the results improve, which indicates that the data has been effectively processed.
-- Next, improve the architecture and training paradigm to achieve the best score.
+- Next, improve the architecture and training paradigm to achieve the best score (remember to use version control for better tracking and reproducibility).
 
 **The last 1 hour:** Focus only on fine-tuning hyperparameters, which is the safest approach (in case you do not know how to code just like me). Additional data processing is also a good option, though only advanced techniques should be used here since everything essential should already be done within the first 5 hours.
