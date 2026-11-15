@@ -1,5 +1,40 @@
 # Olympic AI Guide
 
+## Table of Contents
+
+<a href="#1-foundational-task">1. Foundational Task</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#11-natural-language-processing">1.1. Natural Language Processing</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#feature-extraction">Feature Extraction</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#fill-mask">Fill-Mask</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#text-classification">Text Classification</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#token-classification">Token Classification</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#sentence-similarity">Sentence Similarity</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#text-ranking">Text Ranking</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#question-answering">Question Answering</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#text-generation">Text Generation</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#12-computer-vision">1.2. Computer Vision</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-feature-extraction">Image Feature Extraction</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-classification">Image Classification</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#object-detection">Object Detection</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-segmentation">Image Segmentation</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-retrieval">Image Retrieval</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#keypoint-detection">Keypoint Detection</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#depth-estimation">Depth Estimation</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#video-understanding">Video Understanding</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-to-text">Image-to-Text</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#13-multimodal">1.3. Multimodal</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#visual-document-retrieval">Visual Document Retrieval</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#document-question-answering">Document Question Answering</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#visual-question-answering">Visual Question Answering</a><br>
+<a href="#2-general-tips">2. General Tips</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#21-data">2.1. Data</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#22-trick--technique">2.2. Trick &amp; Technique</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#23-llm-usage">2.3. LLM Usage</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#24-version-control">2.4. Version Control</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#25-strategy">2.5. Strategy</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#what-to-do-first">What to Do First</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#device-distribution--time-management">Device Distribution &amp; Time Management</a>
+
 # 1. Foundational Task
 
 ## 1.1. Natural Language Processing
