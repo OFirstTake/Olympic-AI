@@ -1586,6 +1586,34 @@ Usually, a basic data preprocessing pipeline is provided with the baseline code.
 
 ## 2.2. Trick & Technique
 
+Once the data pipeline and a solid single model are in place, the tricks below squeeze out the last few points. Most of them only change inference, so they are cheap, safe, and need no LLM, which makes them a good fit for the last hour (see [2.5. Strategy](#25-strategy)). Before using any of them, check the rules for inference time limits and the number of models allowed.
+
+**Free Gains (Single Model):**
+
+- **Test-Time Augmentation (TTA):** Predict on a few augmented copies of each test sample (e.g., horizontal flip, multi-scale, several crops) and average the outputs. Only use augmentations that do not change the label (no flips for left/right questions or text in images).
+- **Weight Averaging:** Keep an EMA of the weights during training, or average the last few checkpoints (SWA). It usually beats the single best checkpoint and costs nothing at inference.
+- **Threshold Tuning:** For F1, multi-label, or imbalanced tasks, tune the decision threshold (per class if needed) on the validation set instead of using 0.5.
+
+**Ensembling:**
+
+Combining several models almost always beats the best one alone, as long as the models make *different* mistakes. Diversity matters more than the number of models: vary the backbone, input resolution / max length, seed, or validation fold. With 2 computers, the second machine can train a different backbone in parallel with your main experiments.
+
+- **Averaging:** Average the predicted probabilities (classification) or outputs (regression). Use a weighted average when one model is clearly stronger.
+- **Voting:** Majority vote over the predicted labels. Useful when models only output hard labels.
+- **Rank Averaging:** Average the ranks instead of the raw scores when models are poorly calibrated or the metric is rank-based (AUC, retrieval, ranking).
+- **Task-Specific Fusion:** For detection, merge boxes with Weighted Boxes Fusion (WBF) instead of NMS. For retrieval, fuse ranked lists with reciprocal rank fusion (RRF).
+- **K-Fold Ensemble:** Train one model per fold and average them on the test set. This reuses all training data and gives out-of-fold (OOF) predictions for tuning weights.
+
+**Stacking & Boosting:**
+
+- **Stacking:** Train a small meta-model (logistic regression or a gradient-boosted tree) on the OOF predictions of your base models. It can learn better combinations than fixed weights, but needs K-fold OOF predictions to avoid leakage.
+- **Gradient Boosting on Features:** Extract embeddings from a frozen pretrained backbone (see [Feature Extraction](#feature-extraction) and [Image Feature Extraction](#image-feature-extraction)), concatenate any tabular metadata, and train LightGBM / XGBoost / CatBoost on them. It trains in minutes, is a strong baseline when fine-tuning is too slow or data is small, and adds diversity to a neural ensemble.
+
+**Common Pitfalls:**
+
+- Ensembling models that are nearly identical (same backbone, same fold), which adds inference time without gains.
+- Tuning weights or thresholds on the public leaderboard, which overfits it.
+
 ## 2.3. LLM Usage
 
 In this competition, each team will be provided with access to a Large Language Model (LLM) to help brainstorm ideas, implement code, and debug. However, there are a few constraints that should be considered:
