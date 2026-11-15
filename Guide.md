@@ -1507,9 +1507,49 @@ answer = normalize_answer(vlm.generate(image=img,
 
 ## 2.1. Data
 
-## 2.2. Trick & Technique
+From my observation, data processing is often the deciding factor in winning these types of competitions. I highly recommend creating a standardized data workflow and practicing it beforehand so your team can execute it quickly and effectively. While workflows may vary, there are two must-have steps:
 
-## 2.3. LLM Usage
+**Exploratory Data Analysis (EDA):**
+
+This step helps you gain deep insights into the provided dataset before writing any model code.
+
+- **Sample Content:** Identify unique patterns within raw samples from each class. These insights can guide your choice of techniques or model architecture. Be highly alert for data leakage (e.g., background elements that allow the model to cheat, or special text tokens that inadvertently leak the target label).
+
+- **Sample Shape:** Check if the data dimensions are uniform. For images, check the width and height distributions. For text, analyze the sequence lengths. For video, in addition to spatial dimensions, check the total frame count and FPS.
+
+- **Data Distribution & Imbalance:** Analyze the label distribution to identify severe class imbalance or long-tailed data classes.
+
+- **Missing Values & Corrupted Data:** Locate all null/NaN values, broken images, and corrupted files so they don't crash your training loop.
+
+- **Outliers & Anomalies:** Handle abnormal samples properly (e.g., bounding boxes lying outside image boundaries, or text sequences that vastly exceed standard token limits).
+
+**Data Preprocessing & Cleaning:**
+
+Usually, a basic data preprocessing pipeline is provided with the baseline code. Hence, you only need to adapt it to your specific strategy. A complete pipeline typically includes:
+
+- **Computer Vision (CV):**
+
+    - **Resizing & Cropping:** Rescale or tile the images to match the required input resolution of your model.
+
+    - **Normalization:** Apply the specific mean and standard deviation of the dataset used to pretrain the model (e.g., ImageNet stats) to ensure optimal convergence.
+
+    - **Format Conversion:** Convert between color spaces (e.g., BGR to RGB, or Grayscale) as required by the architecture.
+
+    - **Data Augmentation:** Prevent overfitting and improve model generalization.
+
+        - **Standard:** Flips, Rotations, Color Jitter.
+
+        - **Advanced:** CutMix, MixUp, Mosaic.
+
+- **Natural Language Processing (NLP):**
+
+    - **Text Cleaning:** Strip HTML tags, remove extra whitespace or emojis, and fix basic typos.
+
+    - **Sequence Truncation & Padding:** Truncate or pad the text intelligently (e.g., keeping only the head, only the tail, or head+tail) to retain crucial information while fitting within context limits.
+
+    - **Data Augmentation:** Apply synonym replacement, random token masking, back-translation, or add noise directly at the embedding level (e.g., AEDA).
+
+## 2.2. Trick & Technique
 
 ## 2.3. LLM Usage
 
