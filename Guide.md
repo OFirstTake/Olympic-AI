@@ -1,5 +1,40 @@
 # Olympic AI Guide
 
+## Table of Contents
+
+- [1. Foundational Task](#1-foundational-task)
+  - [1.1. Natural Language Processing](#11-natural-language-processing)
+    - [Feature Extraction](#feature-extraction)
+    - [Fill-Mask](#fill-mask)
+    - [Text Classification](#text-classification)
+    - [Token Classification](#token-classification)
+    - [Sentence Similarity](#sentence-similarity)
+    - [Text Ranking](#text-ranking)
+    - [Question Answering](#question-answering)
+    - [Text Generation](#text-generation)
+  - [1.2. Computer Vision](#12-computer-vision)
+    - [Image Feature Extraction](#image-feature-extraction)
+    - [Image Classification](#image-classification)
+    - [Object Detection](#object-detection)
+    - [Image Segmentation](#image-segmentation)
+    - [Image Retrieval](#image-retrieval)
+    - [Keypoint Detection](#keypoint-detection)
+    - [Depth Estimation](#depth-estimation)
+    - [Video Understanding](#video-understanding)
+    - [Image-to-Text](#image-to-text)
+  - [1.3. Multimodal](#13-multimodal)
+    - [Visual Document Retrieval](#visual-document-retrieval)
+    - [Document Question Answering](#document-question-answering)
+    - [Visual Question Answering](#visual-question-answering)
+- [2. General Tips](#2-general-tips)
+  - [2.1. Data](#21-data)
+  - [2.2. Trick & Technique](#22-trick--technique)
+  - [2.3. LLM Usage](#23-llm-usage)
+  - [2.4. Version Control](#24-version-control)
+  - [2.5. Strategy](#25-strategy)
+    - [What to Do First](#what-to-do-first)
+    - [Device Distribution & Time Management](#device-distribution--time-management)
+
 # 1. Foundational Task
 
 ## 1.1. Natural Language Processing
