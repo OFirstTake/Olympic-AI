@@ -2,38 +2,38 @@
 
 ## Table of Contents
 
-- [1. Foundational Task](#1-foundational-task)
-  - [1.1. Natural Language Processing](#11-natural-language-processing)
-    - [Feature Extraction](#feature-extraction)
-    - [Fill-Mask](#fill-mask)
-    - [Text Classification](#text-classification)
-    - [Token Classification](#token-classification)
-    - [Sentence Similarity](#sentence-similarity)
-    - [Text Ranking](#text-ranking)
-    - [Question Answering](#question-answering)
-    - [Text Generation](#text-generation)
-  - [1.2. Computer Vision](#12-computer-vision)
-    - [Image Feature Extraction](#image-feature-extraction)
-    - [Image Classification](#image-classification)
-    - [Object Detection](#object-detection)
-    - [Image Segmentation](#image-segmentation)
-    - [Image Retrieval](#image-retrieval)
-    - [Keypoint Detection](#keypoint-detection)
-    - [Depth Estimation](#depth-estimation)
-    - [Video Understanding](#video-understanding)
-    - [Image-to-Text](#image-to-text)
-  - [1.3. Multimodal](#13-multimodal)
-    - [Visual Document Retrieval](#visual-document-retrieval)
-    - [Document Question Answering](#document-question-answering)
-    - [Visual Question Answering](#visual-question-answering)
-- [2. General Tips](#2-general-tips)
-  - [2.1. Data](#21-data)
-  - [2.2. Trick & Technique](#22-trick--technique)
-  - [2.3. LLM Usage](#23-llm-usage)
-  - [2.4. Version Control](#24-version-control)
-  - [2.5. Strategy](#25-strategy)
-    - [What to Do First](#what-to-do-first)
-    - [Device Distribution & Time Management](#device-distribution--time-management)
+<a href="#1-foundational-task">1. Foundational Task</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#11-natural-language-processing">1.1. Natural Language Processing</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#feature-extraction">Feature Extraction</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#fill-mask">Fill-Mask</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#text-classification">Text Classification</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#token-classification">Token Classification</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#sentence-similarity">Sentence Similarity</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#text-ranking">Text Ranking</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#question-answering">Question Answering</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#text-generation">Text Generation</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#12-computer-vision">1.2. Computer Vision</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-feature-extraction">Image Feature Extraction</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-classification">Image Classification</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#object-detection">Object Detection</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-segmentation">Image Segmentation</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-retrieval">Image Retrieval</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#keypoint-detection">Keypoint Detection</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#depth-estimation">Depth Estimation</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#video-understanding">Video Understanding</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#image-to-text">Image-to-Text</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#13-multimodal">1.3. Multimodal</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#visual-document-retrieval">Visual Document Retrieval</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#document-question-answering">Document Question Answering</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#visual-question-answering">Visual Question Answering</a><br>
+<a href="#2-general-tips">2. General Tips</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#21-data">2.1. Data</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#22-trick--technique">2.2. Trick &amp; Technique</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#23-llm-usage">2.3. LLM Usage</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#24-version-control">2.4. Version Control</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#25-strategy">2.5. Strategy</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#what-to-do-first">What to Do First</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp; <a href="#device-distribution--time-management">Device Distribution &amp; Time Management</a>
 
 # 1. Foundational Task
 
