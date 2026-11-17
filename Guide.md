@@ -43,13 +43,15 @@
 
 **1. Task Description**
 
-Apply a (usually frozen) pretrained encoder $f_\theta: \mathcal{V}^T \to \mathbb{R}^d$ that compresses a token sequence into a dense vector whose geometry (cosine / dot product) encodes semantics. The vector is not the deliverable. It feeds a cheap downstream model (linear head, gradient-boosted trees, kNN, clustering).
+Turn each text into a fixed-length list of numbers (an *embedding*) using a pretrained language model, usually kept frozen. Texts with similar meaning get similar embeddings. The embedding is not the final answer: it is the input to a simple, fast model (logistic regression, gradient-boosted trees, nearest-neighbour search, clustering) that makes the actual prediction.
 
-**2. Input & Output Signatures**
+Core idea: let a large pretrained model do the "understanding" once, then spend your time on the cheap model on top.
 
-- Input: token ids `x ∈ ℤ^{B×T}`, attention mask `m ∈ {0,1}^{B×T}`.
-- Hidden states: `H ∈ ℝ^{B×T×d}` (optionally every layer: `ℝ^{L×B×T×d}`).
-- Output: pooled embedding `z ∈ ℝ^{B×d}`, e.g. masked mean $z_b = \frac{\sum_t m_{bt} h_{bt}}{\sum_t m_{bt}}$, then $\hat z = z / \lVert z \rVert_2$.
+**2. Input & Output**
+
+- Input: raw text (sentences, paragraphs or whole documents).
+- Output: one embedding per text (typically a few hundred to ~1,000 numbers), usually made by averaging the model's per-token outputs and scaling the vector to length 1.
+- What gets submitted: the predictions of the downstream model trained on these embeddings.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -65,32 +67,7 @@ Apply a (usually frozen) pretrained encoder $f_\theta: \mathcal{V}^T \to \mathbb
   - Multilingual or code-switched text; test set from a different domain than train.
   - No labels at all: clustering, topic discovery, or anomaly detection.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-encoder = load_pretrained_encoder(ENCODER_PATH)
-encoder.eval()                                          # disable dropout
-
-def embed(texts, batch_size=64, max_len=256):
-    feats = []
-    for batch in chunks(texts, batch_size):
-        ids, mask = tokenize(batch, max_len=max_len, pad=True, truncate=True)
-        H = encoder(ids, mask)                          # [B, T, d]
-        m = mask[..., None]                             # [B, T, 1]
-        z = (H * m).sum(axis=1) / m.sum(axis=1)         # masked mean pooling -> [B, d]
-        feats.append(l2_normalize(z))
-    return concat(feats)                                # [N, d]
-
-X_train, X_test = embed(train_texts), embed(test_texts)
-oof, test_pred = zeros(len(X_train), C), zeros(len(X_test), C)
-for tr_idx, va_idx in stratified_kfold(y_train, k=5):
-    head = fit_linear_classifier(X_train[tr_idx], y_train[tr_idx], l2_reg=1.0)
-    oof[va_idx] = head.predict_proba(X_train[va_idx])
-    test_pred += head.predict_proba(X_test) / 5
-print(metric(y_train, oof))
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Frozen encoder + mean pooling + linear head under 5-fold CV. This sets a floor in minutes.
@@ -114,13 +91,16 @@ print(metric(y_train, oof))
 
 **1. Task Description**
 
-Masked language modelling (MLM): given a corrupted sequence $\tilde{x}$ in which positions $\mathcal{M}$ are replaced by a mask token, estimate $p_\theta(x_i \mid \tilde{x})$ over the vocabulary for each $i \in \mathcal{M}$, trained with $\mathcal{L} = -\sum_{i \in \mathcal{M}} \log p_\theta(x_i \mid \tilde{x})$. In competitions it appears as (a) direct prediction of missing words, (b) domain-adaptive pre-training (DAPT) on unlabelled text, and (c) cloze-style zero/few-shot classification.
+Some words in a sentence are hidden behind a special mask token, and the model must guess them from the surrounding context. BERT-style models are pretrained exactly this way, so they can do it out of the box. In competitions it appears in three forms:
+- Predicting missing words directly.
+- **Domain-adaptive pre-training (DAPT):** continuing this "guess the hidden word" training on unlabelled in-domain text, so the model learns the domain before being fine-tuned on the real task.
+- **Cloze-style classification:** rewriting a classification task as fill-in-the-blank (e.g. *"The movie was [MASK]."* → "great" or "awful") so it works with zero or few labels.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `x̃ ∈ ℤ^{B×T}` containing one or more `MASK_ID` positions.
-- Output: logits `ℝ^{B×T×|V|}`; at each masked position a distribution over `|V|` → top-k tokens with probabilities.
-- Cloze classification: class score $s_c = \log p_\theta(v_c \mid \tilde{x})$ for a verbaliser token $v_c$ per class → `ℝ^{B×C}`.
+- Input: text with one or more masked positions, or a sentence with a blank plus a list of candidate answers.
+- Output: for each masked position, a ranked list of likely words with probabilities; with candidates, the best-scoring candidate.
+- Cloze classification: one score per class, taken from the probability of that class's label word.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -137,35 +117,7 @@ Masked language modelling (MLM): given a corrupted sequence $\tilde{x}$ in which
   - Closed candidate sets with near-synonym distractors.
   - Exact-match scoring that is sensitive to casing, accents and whitespace.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-mlm = load_pretrained_mlm(MODEL_PATH); mlm.eval()
-
-def predict_mask(text, k=5):
-    ids = tokenize(text)                                # contains MASK_ID
-    logits = mlm(ids[None])[0]                          # [T, V]
-    pos = where(ids == MASK_ID)
-    return [topk(softmax(logits[p]), k) for p in pos]
-
-def rank_candidates(text_with_blank, candidates):
-    scores = []
-    for cand in candidates:
-        cand_ids = tokenize(cand, add_special_tokens=False)
-        ids = tokenize(text_with_blank.replace("___", MASK_TOKEN * len(cand_ids)))
-        logp = log_softmax(mlm(ids[None])[0], axis=-1)  # [T, V]
-        pos = where(ids == MASK_ID)
-        scores.append(mean(logp[pos, cand_ids]))        # length-normalised log-likelihood
-    return candidates[argmax(scores)]
-
-# Domain-adaptive pre-training on unlabelled text
-for batch in unlabelled_loader:
-    ids, labels = random_mask(batch, p=0.15, p_mask=0.8, p_random=0.1)   # labels = IGNORE elsewhere
-    loss = cross_entropy(mlm(ids), labels, ignore_index=IGNORE)
-    loss.backward(); optimizer.step(); scheduler.step(); optimizer.zero_grad()
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Determine whether targets are single tokens in the model's vocabulary and whether a candidate list exists. With candidates, frame it as ranking, not generation.
@@ -189,19 +141,19 @@ for batch in unlabelled_loader:
 
 **1. Task Description**
 
-Learn $p_\theta(y \mid x)$ mapping a token sequence (or a pair of sequences) to one of $C$ classes, a subset of labels, or an ordinal / continuous score.
+Assign a label to a piece of text, or to a pair of texts. The label can be one class out of several (topic, sentiment), several labels at once (tags), or an ordered score (a 1–5 rating, an essay grade). The standard approach is to fine-tune a pretrained encoder with a small classification layer on top.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `ids ∈ ℤ^{B×T}`, mask; pairs packed as `[CLS] a [SEP] b [SEP]` with segment ids.
-- Output: logits `ℝ^{B×C}` → softmax (single-label), element-wise sigmoid (multi-label), or a scalar `ℝ^{B×1}` (regression / ordinal).
+- Input: a text, or two texts joined with a separator (e.g. premise + hypothesis).
+- Output: a probability per class (exactly one class), an independent yes/no probability per label (several labels), or a single number (rating / regression).
 
 **3. Task Variants & Olympic AI Framing**
 
 - **Common Sub-tasks:**
   - *Binary:* 1 logit + binary cross-entropy (BCE); tune the decision threshold.
-  - *Multi-class:* $C$ logits + cross-entropy (optionally label smoothing).
-  - *Multi-label:* $C$ independent logits + per-label BCE (or focal / asymmetric loss); per-class thresholds.
+  - *Multi-class:* one score per class + cross-entropy (optionally label smoothing).
+  - *Multi-label:* an independent score per label + per-label BCE (or focal / asymmetric loss); per-class thresholds.
   - *Ordinal / rating:* regression head + MSE, then optimise cut-points; or cumulative-link ordinal heads.
   - *Pair classification (NLI, paraphrase, stance):* cross-encoder input, same heads.
   - *Hierarchical labels:* one head per level, or a joint softmax constrained by the hierarchy.
@@ -213,36 +165,7 @@ Learn $p_\theta(y \mid x)$ mapping a token sequence (or a pair of sequences) to 
   - Spurious lexical shortcuts: keywords correlated with labels in train but not in test.
   - Metric quirks: quadratic weighted kappa (QWK) for ordinal labels, log-loss that rewards calibration.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-for fold, (tr_idx, va_idx) in enumerate(stratified_group_kfold(labels, groups, k=5)):
-    encoder = load_pretrained_encoder(MODEL_PATH)
-    head = Linear(encoder.hidden_dim, NUM_CLASSES)
-    params = encoder.params + head.params
-    opt = AdamW(params, lr=2e-5, weight_decay=0.01)
-    sched = linear_warmup_then_decay(opt, warmup=0.1 * TOTAL_STEPS, total=TOTAL_STEPS)
-    best = -inf
-
-    for epoch in range(EPOCHS):
-        for ids, mask, y in loader(train[tr_idx], batch=16, shuffle=True, pad_to_longest=True):
-            h = masked_mean(encoder(ids, mask), mask)   # [B, d]  (or the CLS vector)
-            logits = head(dropout(h, p=0.1))            # [B, C]
-            loss = cross_entropy(logits, y, label_smoothing=0.05)
-            loss.backward(); clip_grad_norm(params, 1.0)
-            opt.step(); sched.step(); opt.zero_grad()
-        score = metric(train.y[va_idx], predict(encoder, head, train[va_idx]))
-        if score > best:
-            best = score; save(encoder, head, f"fold{fold}.ckpt")
-
-    model = load(f"fold{fold}.ckpt")
-    oof[va_idx] = predict(model, train[va_idx])
-    test_probs += predict(model, test) / 5
-
-thresholds = optimise_thresholds(oof, train.y, metric)   # for F1 / QWK-style metrics
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Choose the head and loss that match the metric; inspect class balance and token lengths.
@@ -269,12 +192,12 @@ thresholds = optimise_thresholds(oof, train.y, metric)   # for F1 / QWK-style me
 
 **1. Task Description**
 
-Sequence labelling: assign a tag $y_t \in \mathcal{Y}$ to every token or word $x_t$. Spans are encoded with BIO / BIOES tags and decoded back to `(start, end, type)` triples. The model is either factorised per token, $\prod_t p(y_t \mid x)$, or structured (CRF).
+Give a label to every word in a text. It is mostly used to find **spans**: names, places, personal information, parts of an essay. Spans are written as per-word tags: `B` = beginning of a span, `I` = inside a span, `O` = outside any span (e.g. *"Barack/B-PER Obama/I-PER visited/O Hanoi/B-LOC"*). The model predicts a tag for each word, and the tags are converted back into spans.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: words `w_1..w_N` → sub-word ids `ℤ^{B×T}` plus an alignment `word_ids: t ↦ {0..N−1} ∪ {None}` (or character offsets `t ↦ (c_start, c_end)`).
-- Output: logits `ℝ^{B×T×|Y|}` → one tag per word `Y^N` → spans `[(char_start, char_end, type)]`.
+- Input: text, either pre-split into words or as raw characters. Because the model works on sub-word pieces, you need a mapping from each piece back to its word or character position.
+- Output: one tag per word, converted into a list of spans (start position, end position, type).
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -293,35 +216,7 @@ Sequence labelling: assign a tag $y_t \in \mathcal{Y}$ to every token or word $x
   - Recall-weighted metrics (e.g. F-beta with β > 1).
   - Unseen entity surface forms at test time.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def align_labels(words, word_labels, max_len):
-    ids, word_ids = tokenize_words(words, max_len=max_len)   # word_ids[t] = word index or None
-    labels, prev = [], None
-    for w in word_ids:
-        if w is None:     labels.append(IGNORE)              # special / padding tokens
-        elif w != prev:   labels.append(word_labels[w])      # first sub-token carries the label
-        else:             labels.append(IGNORE)              # remaining sub-tokens ignored
-        prev = w
-    return ids, labels, word_ids
-
-encoder = load_pretrained_encoder(MODEL_PATH); head = Linear(d, NUM_TAGS)
-for ids, mask, labels in loader(train):
-    logits = head(encoder(ids, mask))                        # [B, T, NUM_TAGS]
-    loss = cross_entropy(logits.reshape(-1, NUM_TAGS), labels.reshape(-1), ignore_index=IGNORE)
-    loss.backward(); opt.step(); sched.step(); opt.zero_grad()
-
-def decode(logits, word_ids):
-    word_tag = {}
-    for t, w in enumerate(word_ids):
-        if w is not None and w not in word_tag:
-            word_tag[w] = argmax(logits[t])
-    tags = repair_bio([word_tag[i] for i in sorted(word_tag)])   # I-X after O / B-Y  ->  B-X
-    return tags_to_spans(tags)
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Establish the annotation unit (characters vs words) and the metric (entity- vs token-level).
@@ -329,7 +224,7 @@ def decode(logits, word_ids):
   3. Add constrained decoding (CRF or Viterbi with BIO transition constraints), larger encoders, then ensembling by averaging *word-level* probabilities.
   4. Trade precision against recall with a threshold on the `O` probability.
 - **What Moves the Score:**
-  - `O`-threshold: predict an entity when $P(O) < \tau$, with τ tuned on OOF. This is crucial for recall-weighted metrics.
+  - `O`-threshold: predict an entity whenever the model's probability for `O` falls below a threshold tuned on OOF. This is crucial for recall-weighted metrics.
   - Sliding windows with stride; for each token, keep predictions from the window where it is most central.
   - Rule-based post-processing: regexes for structured entities (emails, phone numbers, IDs), gazetteers of known names.
   - Down-sampling windows that contain no entities.
@@ -346,13 +241,14 @@ def decode(logits, word_ids):
 
 **1. Task Description**
 
-Learn a scoring function $s(a, b) \in \mathbb{R}$ for semantic equivalence or relatedness between two texts. Two parametrisations: **bi-encoder** $s = \cos(f(a), f(b))$ (independent encoding, indexable) and **cross-encoder** $s = g([a; b])$ (joint encoding, more accurate, not indexable).
+Score how close two texts are in meaning. There are two ways to build the scorer:
+- **Bi-encoder:** embed each text separately and compare the two vectors with cosine similarity. Fast, and texts can be pre-indexed, so it scales to search over millions of texts.
+- **Cross-encoder:** feed both texts into the model together and let it output a score directly. More accurate, but it has to run once for every pair.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: pair `(a, b)` of token sequences.
-- Bi-encoder intermediate: `f(a), f(b) ∈ ℝ^{d}`.
-- Output: scalar `ℝ` (e.g. 0–5 similarity), probability `[0, 1]` (paraphrase), or 3-way logits `ℝ^{3}` (entailment / neutral / contradiction).
+- Input: a pair of texts, sometimes with an extra context field (e.g. a topic or category).
+- Output: a similarity score (e.g. 0–5), a probability that the texts are paraphrases, or a 3-way label (entailment / neutral / contradiction).
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -369,28 +265,7 @@ Learn a scoring function $s(a, b) \in \mathbb{R}$ for semantic equivalence or re
   - Rank-based metric (Spearman): calibration is irrelevant, only ordering matters.
   - Lexical-overlap traps: high word overlap but different meaning.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-# Option A: bi-encoder, zero-shot
-emb = load_pretrained_encoder(EMB_PATH)
-za = l2_normalize(masked_mean(emb(tokenize(A))))        # [N, d]
-zb = l2_normalize(masked_mean(emb(tokenize(B))))        # [N, d]
-sim = (za * zb).sum(-1)                                  # [N] cosine similarity
-
-# Option B: cross-encoder regression, fine-tuned
-encoder = load_pretrained_encoder(MODEL_PATH); head = Linear(d, 1)
-for a, b, y in loader(train):                            # y rescaled to [0, 1]
-    ids, mask, seg = tokenize_pair(a, b, context=CTX)    # optional extra context field
-    pred = sigmoid(head(encoder(ids, mask, seg)[:, 0])).squeeze(-1)
-    loss = binary_cross_entropy(pred, y)                 # soft targets; or MSE
-    loss.backward(); opt.step(); sched.step(); opt.zero_grad()
-
-def score(a, b):                                         # symmetric test-time augmentation
-    return 0.5 * (cross_encoder(a, b) + cross_encoder(b, a))
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. If the test set is a fixed list of pairs, the cross-encoder is the main model; if it requires search over a corpus, the bi-encoder is.
@@ -414,13 +289,14 @@ def score(a, b):                                         # symmetric test-time a
 
 **1. Task Description**
 
-Given a query $q$ and corpus $\mathcal{D}$, output a permutation of (a subset of) $\mathcal{D}$ maximising a ranking metric. Standard design is two-stage: a cheap retriever selects $R(q) \subset \mathcal{D}$, $|R| = k \ll |\mathcal{D}|$, and an expensive reranker $s(q, d)$ reorders $R(q)$.
+Given a query and a large collection of documents, return the most relevant documents in the right order. The standard design has two stages:
+1. **Retrieve:** a fast method (keyword search such as BM25, embedding search, or both) picks a few hundred candidates from the whole collection.
+2. **Rerank:** a slower, more accurate model (a cross-encoder that reads the query and document together) reorders only those candidates.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: query string; corpus of `N` documents (often chunked into passages).
-- Index: sparse term weights, or dense passage embeddings `ℝ^{N_p×d}`.
-- Output: ranked doc ids `[d_1, …, d_k]` with scores → `ℝ^{Q×k}`.
+- Input: query text and a document collection (long documents are usually split into passages).
+- Output: for each query, an ordered list of the top-k document ids, optionally with scores.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -437,37 +313,7 @@ Given a query $q$ and corpus $\mathcal{D}$, output a permutation of (a subset of
   - Incomplete relevance labels: unlabelled relevant documents are counted as negatives.
   - Metric at a fixed cut-off (MAP@25, Recall@50).
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-passages, owner = chunk_documents(corpus, size=256, overlap=64)   # owner[p] = doc id
-
-# Stage 1: hybrid candidate generation with reciprocal rank fusion (RRF)
-sparse = build_bm25_index(passages)
-P = l2_normalize(embed(passages))                       # [Np, d]
-def retrieve(q, k=200):
-    r_sparse = rank_positions(sparse.score(q))          # passage -> rank (0 = best)
-    r_dense  = rank_positions(P @ l2_normalize(embed([q]))[0])
-    cands = union(top(r_sparse, k), top(r_dense, k))
-    fused = {p: 1 / (60 + r_sparse[p]) + 1 / (60 + r_dense[p]) for p in cands}
-    return top_k_by_value(fused, k)
-
-# Stage 2: cross-encoder reranking, document score = best passage score
-def rerank(q, cands, k_out=10):
-    s = {p: cross_encoder(tokenize_pair(q, passages[p])) for p in cands}
-    doc_score = {}
-    for p, v in s.items():
-        doc_score[owner[p]] = max(doc_score.get(owner[p], -inf), v)
-    return sorted(doc_score, key=doc_score.get, reverse=True)[:k_out]
-
-# Reranker training, listwise with hard negatives from stage 1
-for q, pos, hard_negs in loader(train_queries):
-    logits = stack([cross_encoder(q, d) for d in [pos] + hard_negs])   # [1 + n_neg]
-    loss = cross_entropy(logits[None], target=[0])
-    loss.backward(); opt.step(); opt.zero_grad()
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Measure stage-1 Recall@k on its own: it is the ceiling for everything after.
@@ -491,13 +337,12 @@ for q, pos, hard_negs in loader(train_queries):
 
 **1. Task Description**
 
-Extractive QA: given question $q$ and context $c = (c_1, \dots, c_n)$, predict the span $(s, e)$ maximising $p(s)\,p(e)$ subject to $s \le e$ and $e - s < L_{\max}$, or output "no answer". Variants include multiple choice, open-domain (retriever + reader) and generative QA.
+Given a question and a context passage, find the answer. In **extractive QA** (the most common form) the answer is a piece of text copied from the passage: the model predicts where the answer starts and where it ends. If the passage does not contain the answer, the model should return "no answer". Other forms: multiple choice, open-domain QA (first find the right passage, then read it), and generative QA (write the answer freely).
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[CLS] q [SEP] c_window [SEP]` → `ℤ^{B×T}`, plus offsets `t ↦ (char_start, char_end)` (None for question / special tokens).
-- Output: start and end logits `ℝ^{B×T}` each → character span `(a, b)` → answer `c[a:b]`, or the empty string.
-- Multiple choice: `ℝ^{B×K}` over K options.
+- Input: question + context. Long contexts are split into overlapping windows so nothing is cut off.
+- Output: the answer text (a substring of the context, or empty for "no answer"); for multiple choice, the chosen option.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -516,36 +361,7 @@ Extractive QA: given question $q$ and context $c = (c_1, \dots, c_n)$, predict t
   - Word-level Jaccard / F1, which punishes stray punctuation and partial words.
   - Distractor paragraphs.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def featurize(q, ctx, max_len=384, stride=128):
-    # overlapping windows; only the context is truncated
-    return tokenize_pair(q, ctx, max_len=max_len, stride=stride,
-                         truncate="context_only", return_offsets=True)
-
-encoder = load_pretrained_encoder(MODEL_PATH); head = Linear(d, 2)
-# targets: token indices covering the answer's char span, or (0, 0) = CLS if not inside this window
-for ids, mask, start_t, end_t in loader(train_windows):
-    start_logits, end_logits = split(head(encoder(ids, mask)), 2, axis=-1)   # [B, T] each
-    loss = 0.5 * (cross_entropy(start_logits, start_t) + cross_entropy(end_logits, end_t))
-    loss.backward(); opt.step(); sched.step(); opt.zero_grad()
-
-def postprocess(windows, all_start, all_end, ctx, n_best=20, max_ans_len=30, null_margin=0.0):
-    best, best_score = "", -inf
-    for w, sl, el in zip(windows, all_start, all_end):
-        for s in topk_indices(sl, n_best):
-            for e in topk_indices(el, n_best):
-                if w.offsets[s] is None or w.offsets[e] is None: continue
-                if e < s or e - s + 1 > max_ans_len:             continue
-                if sl[s] + el[e] > best_score:
-                    best_score = sl[s] + el[e]
-                    best = ctx[w.offsets[s][0] : w.offsets[e][1]]
-    null_score = min(sl[0] + el[0] for sl, el in zip(all_start, all_end))
-    return "" if null_score - best_score > null_margin else best.strip()
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Read the submission format: extractive, generative or multiple choice.
@@ -570,13 +386,14 @@ def postprocess(windows, all_start, all_end, ctx, n_best=20, max_ans_len=30, nul
 
 **1. Task Description**
 
-Model $p_\theta(y \mid x) = \prod_t p_\theta(y_t \mid y_{<t}, x)$, trained with teacher-forced cross-entropy and used through a decoding algorithm $\hat{y} = \mathrm{decode}(p_\theta, x)$. Covers summarisation, translation, data-to-text, instruction following and structured output.
+Produce output text from input text: summaries, translations, answers to instructions, or structured output such as JSON. The model writes one token at a time, each based on the input and on what it has written so far. Two choices dominate the result:
+- **How the model is adapted:** plain prompting, few-shot examples in the prompt, or light fine-tuning (e.g. LoRA).
+- **How text is decoded:** greedy, beam search or sampling, plus length limits and stop rules.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: source / prompt ids `ℤ^{B×T_in}`.
-- Training: logits `ℝ^{B×T×|V|}`. Decoder-only: sequence `[x; y]` with loss only on `y`. Encoder-decoder: `encoder(x)`, `decoder(y_{<t})`.
-- Output: generated ids `ℤ^{B×T_out}` → strings (optionally parsed into JSON, labels, etc.).
+- Input: source text or a prompt.
+- Output: generated text, sometimes parsed into a required format (JSON, a label, code).
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -591,30 +408,7 @@ Model $p_\theta(y \mid x) = \prod_t p_\theta(y_t \mid y_{<t}, x)$, trained with 
   - Length-sensitive metrics (ROUGE recall vs F-measure).
   - Inference time limit: model size and decoding strategy must fit the test set.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-model = load_pretrained_causal_lm(MODEL_PATH, dtype="fp16")
-model = add_low_rank_adapters(model, rank=16, alpha=32, targets="attention_projections")  # optional
-
-def build_example(src, tgt):
-    p = tokenize(PROMPT_TEMPLATE.format(src=src))
-    a = tokenize(tgt) + [EOS_ID]                        # the model must learn to stop
-    return p + a, [IGNORE] * len(p) + a                 # loss only on the answer tokens
-
-for ids, labels in loader(train, pad_side="right"):
-    logits = model(ids)                                 # [B, T, V]
-    loss = cross_entropy(logits[:, :-1], labels[:, 1:], ignore_index=IGNORE)   # next-token shift
-    loss.backward(); opt.step(); sched.step(); opt.zero_grad()
-
-def generate(srcs, max_new=128):
-    ids, mask = tokenize_batch([PROMPT_TEMPLATE.format(src=s) for s in srcs], pad_side="left")
-    out = model.generate(ids, mask, max_new_tokens=max_new, num_beams=4,
-                         no_repeat_ngram_size=3, eos_token_id=EOS_ID)
-    return detokenize(out[:, ids.shape[1]:])            # strip the prompt
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Read the metric and output constraints; measure a zero-shot prompt baseline *and* time per example on a validation subset.
@@ -642,15 +436,12 @@ def generate(srcs, max_new=128):
 
 **1. Task Description**
 
-Map an image $I \in \mathbb{R}^{3 \times H \times W}$ to a global descriptor $z = f_\theta(I) \in \mathbb{R}^d$, or to dense patch features $F \in \mathbb{R}^{d \times h \times w}$, using a pretrained backbone. Downstream heads (linear probe, kNN, tree models, decoders) consume these features.
+Turn each image into a fixed-length vector (one per image) or a grid of vectors (one per image region) using a pretrained vision model. As with text embeddings, the vectors are not the final answer: they feed a simple model (linear classifier, nearest-neighbour search, clustering, tree model).
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]` float tensor, normalised with the backbone's own mean/std, at the backbone's native resolution (ViTs: multiple of the patch size, e.g. 14 or 16).
-- Output:
-  - Global: `[B, d]` (CLS token or global average pooling).
-  - Patch tokens (ViT): `[B, N, d]` with $N = (H/p)(W/p)$.
-  - CNN feature maps: `[B, d, H/32, W/32]` (or a multi-scale pyramid).
+- Input: images, resized and normalised the way the pretrained model expects.
+- Output: one vector per image (a global description), or one vector per patch / region (dense features) for tasks that need spatial detail.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -667,33 +458,7 @@ Map an image $I \in \mathbb{R}^{3 \times H \times W}$ to a global descriptor $z 
   - Frozen backbone imposed by rules or compute.
   - Mixed resolutions and aspect ratios; tiny discriminative regions.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-backbone = load_pretrained_vision_backbone(PATH); backbone.eval()
-MEAN, STD, SIZE = backbone.norm_mean, backbone.norm_std, backbone.input_size
-
-def preprocess(img):
-    img = apply_exif_orientation(to_rgb(img))
-    img = center_crop(resize_shorter_side(img, SIZE), SIZE)
-    x = to_float_tensor(img) / 255.0                    # [3, H, W]
-    return (x - MEAN[:, None, None]) / STD[:, None, None]
-
-def pool(tokens):                                       # tokens: [B, 1 + N, d]
-    return concat([tokens[:, 0], tokens[:, 1:].mean(1)], axis=-1)   # CLS ‖ mean patch -> [B, 2d]
-
-def extract(images, bs=128, flip_tta=True):
-    feats = []
-    for batch in chunks(images, bs):
-        x = stack([preprocess(im) for im in batch])     # [B, 3, H, W]
-        z = pool(backbone(x))
-        if flip_tta:
-            z = 0.5 * (z + pool(backbone(flip_horizontal(x))))
-        feats.append(l2_normalize(z))
-    return concat(feats)                                # [N, 2d]
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Benchmark 2–3 backbone families: self-supervised (DINOv2), language-supervised (CLIP / SigLIP), supervised CNN (ConvNeXt / EfficientNet). Use a linear probe and kNN under CV.
@@ -716,12 +481,12 @@ def extract(images, bs=128, flip_tta=True):
 
 **1. Task Description**
 
-Learn $p_\theta(y \mid I)$ with $y \in \{1, \dots, C\}$ (single-label), $y \in \{0,1\}^C$ (multi-label), or $y \in \mathbb{R}$ / ordinal grades.
+Assign a label to a whole image: one class, several labels at once, or a grade / score (e.g. disease severity). The standard approach is to fine-tune a pretrained CNN or vision transformer with a new classification layer.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]`.
-- Output: logits `[B, C]` → softmax (single-label) / sigmoid (multi-label); `[B, 1]` for regression / ordinal grading.
+- Input: an image.
+- Output: a probability per class (exactly one class), an independent probability per label (several labels), or a single number (grade / regression).
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -740,35 +505,7 @@ Learn $p_\theta(y \mid I)$ with $y \in \{1, \dots, C\}$ (single-label), $y \in \
   - Tabular metadata alongside images.
   - An "other / unknown" class at test time.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-train_tf = compose(random_resized_crop(SIZE, scale=(0.6, 1.0)), hflip(p=0.5),
-                   color_jitter(0.2), to_tensor(), normalize(MEAN, STD))
-eval_tf  = compose(resize(SIZE), center_crop(SIZE), to_tensor(), normalize(MEAN, STD))
-
-for fold, (tr, va) in enumerate(stratified_group_kfold(labels, groups, k=5)):
-    model = load_pretrained_backbone(PATH)
-    model.head = Linear(model.dim, C)                   # new head
-    opt = AdamW([{"params": model.backbone_params, "lr": 1e-4},
-                 {"params": model.head_params,     "lr": 1e-3}], weight_decay=0.05)
-    sched = cosine_with_warmup(opt, warmup_epochs=1, total_epochs=EPOCHS)
-    ema = exponential_moving_average(model, decay=0.999)
-
-    for epoch in range(EPOCHS):
-        for x, y in loader(train[tr], transform=train_tf, shuffle=True):
-            x, y_a, y_b, lam = mixup_or_cutmix(x, y, alpha=0.2)
-            logits = model(x)
-            loss = lam * cross_entropy(logits, y_a) + (1 - lam) * cross_entropy(logits, y_b)
-            backward_mixed_precision(loss); opt.step(); sched.step(); opt.zero_grad()
-            ema.update(model)
-        evaluate_and_checkpoint(ema.model, train[va], eval_tf, metric, f"fold{fold}.ckpt")
-
-def predict_tta(model, x):
-    return 0.5 * (softmax(model(x)) + softmax(model(hflip(x))))
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. EDA: class counts, resolution histogram, duplicate search (embedding similarity), and a grid of samples per class.
@@ -796,13 +533,12 @@ def predict_tta(model, x):
 
 **1. Task Description**
 
-Predict a set $\{(b_i, c_i, s_i)\}_{i=1}^{K}$ of bounding boxes $b_i \in \mathbb{R}^4$, class labels $c_i$ and confidences $s_i$ covering every object instance in an image.
+Find every object of interest in an image. For each object, output a rectangle around it (a *bounding box*), its class, and a confidence score. The number of objects varies from image to image and can be zero.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]` (resized / letterboxed).
-- Targets per image (variable count): `boxes [n_i, 4]`, `labels [n_i]`.
-- Output per image after post-processing: `[K, 6] = [x_min, y_min, x_max, y_max, score, class]` in *original* image pixel coordinates.
+- Input: an image. Training labels are a list of boxes with a class for each.
+- Output: per image, a list of (box corners, class, confidence), in the original image's pixel coordinates.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -820,40 +556,7 @@ Predict a set $\{(b_i, c_i, s_i)\}_{i=1}^{K}$ of bounding boxes $b_i \in \mathbb
   - Metric details: mAP@0.5 vs mAP@[0.5:0.95], or F-beta at a set of IoU thresholds.
   - Sensor or lighting shift between train and test.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def to_xyxy(box, fmt, W, H):
-    if fmt == "coco":                                   # x_min, y_min, w, h (pixels)
-        x, y, w, h = box; return [x, y, x + w, y + h]
-    if fmt == "yolo":                                   # cx, cy, w, h (normalised 0-1)
-        cx, cy, w, h = box[0] * W, box[1] * H, box[2] * W, box[3] * H
-        return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
-    return box                                          # already x_min, y_min, x_max, y_max
-
-def iou(a, b):                                          # both xyxy
-    iw = max(0, min(a[2], b[2]) - max(a[0], b[0]))
-    ih = max(0, min(a[3], b[3]) - max(a[1], b[1]))
-    inter = iw * ih
-    return inter / (area(a) + area(b) - inter + 1e-9)
-
-detector = load_pretrained_detector(PATH, num_classes=C)
-for imgs, targets in loader(train, transform=geometric_aug_with_boxes):   # boxes move with the image
-    losses = detector(imgs, targets)                    # {cls, box, obj, ...}
-    sum(losses.values()).backward(); opt.step(); opt.zero_grad()
-
-def predict(img, conf_th=0.001, iou_th=0.6):
-    x, scale, (pad_x, pad_y) = letterbox(img, SIZE)
-    boxes, scores, cls = decode(detector(x))            # model-space xyxy
-    m = scores > conf_th
-    boxes, scores, cls = boxes[m], scores[m], cls[m]
-    k = class_wise_nms(boxes, scores, cls, iou_th)
-    boxes, scores, cls = boxes[k], scores[k], cls[k]
-    boxes = (boxes - [pad_x, pad_y, pad_x, pad_y]) / scale              # undo letterbox
-    return clip(boxes, 0, [img.W, img.H, img.W, img.H]), scores, cls
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Draw ground-truth boxes on ~20 images to confirm the format; plot the distribution of box sizes relative to the image → choose input resolution or tiling.
@@ -880,14 +583,16 @@ def predict(img, conf_th=0.001, iou_th=0.6):
 
 **1. Task Description**
 
-Dense prediction. **Semantic:** $Y \in \{0, \dots, C-1\}^{H \times W}$. **Instance:** a set of (binary mask, class, score) triples, one per object. **Panoptic:** a unified map of "stuff" classes and "thing" instances.
+Label an image pixel by pixel.
+- **Semantic segmentation:** every pixel gets a class (road, sky, car); all cars share the same label.
+- **Instance segmentation:** each object gets its own mask (car #1, car #2).
+- **Panoptic segmentation:** both at once: background regions by class, countable objects as separate instances.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]`.
-- Semantic: logits `[B, C, H, W]` → argmax → integer mask `[B, H, W]`; binary: `[B, 1, H, W]` + sigmoid.
-- Instance: `K × ([H, W] bool mask, class, score)`.
-- Submission: often run-length encoding (RLE) strings.
+- Input: an image.
+- Output: a mask the same size as the image with a class for every pixel (semantic), a foreground probability per pixel (binary), or a list of (mask, class, confidence) (instance).
+- Submissions are often masks compressed as run-length encoding (RLE) strings.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -906,36 +611,7 @@ Dense prediction. **Semantic:** $Y \in \{0, \dots, C-1\}^{H \times W}$. **Instan
   - Coarse or noisy annotations.
   - RLE conventions (column-major, 1-indexed starts).
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-model = encoder_decoder(backbone=load_pretrained_backbone(PATH), num_classes=C)   # U-Net / FPN style
-
-def seg_loss(logits, mask, smooth=1.0):                 # logits [B, C, H, W], mask [B, H, W]
-    ce = cross_entropy(logits, mask, ignore_index=IGNORE)
-    valid = (mask != IGNORE)[:, None]                   # [B, 1, H, W]
-    p = softmax(logits, axis=1) * valid
-    oh = one_hot(where(mask == IGNORE, 0, mask), C).permute(0, 3, 1, 2) * valid
-    inter = (p * oh).sum((2, 3)); denom = p.sum((2, 3)) + oh.sum((2, 3))
-    dice = 1 - ((2 * inter + smooth) / (denom + smooth)).mean()
-    return ce + dice
-
-for img, mask in loader(train, transform=joint_aug):    # same geometry for both; mask uses nearest
-    loss = seg_loss(model(img), mask)
-    loss.backward(); opt.step(); opt.zero_grad()
-
-def predict_large(img, tile=512, overlap=128):
-    prob, weight = zeros(C, H, W), zeros(H, W)
-    g = gaussian_window(tile)
-    for y0, x0 in sliding_windows(H, W, tile, overlap):
-        crop = img[:, y0:y0 + tile, x0:x0 + tile]
-        p = 0.5 * (softmax(model(crop), 0) + hflip(softmax(model(hflip(crop)), 0)))   # flip TTA
-        prob[:, y0:y0 + tile, x0:x0 + tile] += p * g
-        weight[y0:y0 + tile, x0:x0 + tile] += g
-    return argmax(prob / weight, axis=0)                # upsample/blend probabilities, argmax last
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Identify semantic vs instance; compute mask statistics (coverage per image, % empty, object size distribution).
@@ -961,12 +637,12 @@ def predict_large(img, tile=512, overlap=128):
 
 **1. Task Description**
 
-Given a query image $q$ and a gallery $\mathcal{G}$, rank gallery items by $s(q, g) = \langle f(q), f(g) \rangle$, where $f$ is trained so that images of the same instance / identity lie close together (metric learning). Covers instance retrieval (landmarks, products), re-identification and near-duplicate detection.
+Given a query image, find the images in a gallery that show the *same thing*: the same product, landmark, person or animal. A model is trained so that images of the same identity get nearby embeddings and different identities get distant ones (*metric learning*). Retrieval is then a nearest-neighbour search over those embeddings.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: query images `[M, 3, H, W]`; gallery images `[N, 3, H, W]` (pre-embedded to `[N, d]`).
-- Output: top-k gallery ids with scores `[M, k]`; in open-set settings, a special "new / unknown" id inserted where scores fall below a threshold.
+- Input: query images and a gallery of images.
+- Output: for each query, the top-k gallery ids ranked by similarity. In open-set problems, a special "new / unknown" answer is returned when no gallery image is close enough.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -984,35 +660,7 @@ Given a query image $q$ and a gallery $\mathcal{G}$, rank gallery items by $s(q,
   - Query / gallery domain shift.
   - MAP@k with a single correct answer per query.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-class ArcFaceHead:                                      # additive angular margin softmax
-    def __init__(self, d, n_classes, s=30.0, m=0.3):
-        self.W = init_normal([n_classes, d]); self.s, self.m = s, m
-    def loss(self, z, y):
-        cos_t = l2_normalize(z) @ l2_normalize(self.W).T          # [B, n_classes]
-        theta = arccos(clip(cos_t, -1 + 1e-7, 1 - 1e-7))
-        logits = where(one_hot(y, cos_t.shape[1]), cos(theta + self.m), cos_t) * self.s
-        return cross_entropy(logits, y)
-
-backbone = load_pretrained_backbone(PATH)
-neck = Sequential(GeMPooling(p=3), Linear(backbone.dim, 512), BatchNorm(512))
-head = ArcFaceHead(512, N_IDENTITIES)
-for x, y in loader(train):
-    loss = head.loss(neck(backbone(x)), y)
-    loss.backward(); opt.step(); opt.zero_grad()
-
-embed = lambda imgs: l2_normalize(neck(backbone(imgs)))
-G, Q = embed(gallery), embed(queries)                   # [N, 512], [M, 512]
-S = Q @ G.T                                             # [M, N] cosine (compute in chunks if large)
-# Query expansion: refine each query with its top-3 neighbours, then re-score
-Q2 = l2_normalize(Q + G[argsort(-S, axis=1)[:, :3]].mean(axis=1))
-ranked = argsort(-(Q2 @ G.T), axis=1)[:, :K]
-# Open-set: insert NEW_ID at the first rank whose score < tau (tau tuned on validation)
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Zero-shot: strong pretrained embeddings (DINOv2 / CLIP) + cosine kNN → baseline mAP.
@@ -1037,15 +685,14 @@ ranked = argsort(-(Q2 @ G.T), axis=1)[:, :K]
 
 **1. Task Description**
 
-Two related problems. **Semantic keypoints:** localise a fixed set of $K$ named points $\{(x_k, y_k, v_k)\}$ per instance (body joints, facial landmarks), with visibility $v_k$. **Interest points:** detect repeatable, distinctive points with descriptors (SuperPoint-style) for matching images and estimating geometry.
+Two related problems:
+- **Semantic keypoints:** locate a fixed set of named points on each object (body joints, facial landmarks), each with a visible / hidden flag. The usual approach is to predict one heatmap per keypoint and take its peak as the location.
+- **Interest points:** find distinctive points that can be matched between two images of the same scene, used for image stitching or estimating camera motion.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]` (an instance crop for top-down pose).
-- Output:
-  - Heatmaps `[B, K, H/s, W/s]` (stride s, typically 4) → coordinates `[B, K, 2]` + confidences `[B, K]`.
-  - Or direct regression `[B, K, 2]`.
-  - Interest points: `[N, 2]` locations + descriptors `[N, D]`.
+- Input: an image, or a crop around one person / object.
+- Output: an (x, y) location and a confidence for each keypoint. For interest points: a list of point locations, each with a descriptor vector used for matching.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1060,40 +707,7 @@ Two related problems. **Semantic keypoints:** localise a fixed set of $K$ named 
   - Scale-normalised metrics: object keypoint similarity (OKS), NME normalised by inter-ocular distance, PCK at a fraction of the bounding-box size.
   - Matching tasks where keypoints are only an intermediate step.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def gaussian_heatmaps(kpts, vis, out_hw, sigma=2.0):   # kpts in heatmap coordinates
-    h, w = out_hw
-    ys, xs = meshgrid(arange(h), arange(w), indexing="ij")
-    hm = zeros(K, h, w)
-    for k in range(K):
-        if vis[k]:
-            hm[k] = exp(-((xs - kpts[k, 0]) ** 2 + (ys - kpts[k, 1]) ** 2) / (2 * sigma ** 2))
-    return hm
-
-model = load_pretrained_backbone(PATH) + deconv_head(out_channels=K)   # stride-4 heatmaps
-for img, kpts, vis in loader(train, transform=affine_aug_with_keypoints(flip_pairs=FLIP_PAIRS)):
-    target = gaussian_heatmaps(kpts / STRIDE, vis, (H // STRIDE, W // STRIDE))
-    pred = model(img)                                   # [B, K, h, w]
-    per_kpt = ((pred - target) ** 2).mean(axis=(2, 3))  # [B, K]
-    loss = (per_kpt * vis).sum() / max(vis.sum(), 1)    # invisible keypoints do not contribute
-    loss.backward(); opt.step(); opt.zero_grad()
-
-def decode(hm, inv_affine):                             # hm: [K, h, w]
-    K, h, w = hm.shape
-    idx = argmax(hm.reshape(K, -1), axis=-1)
-    y, x = idx // w, idx % w
-    xl, xr = clip(x - 1, 0, w - 1), clip(x + 1, 0, w - 1)
-    yu, yd = clip(y - 1, 0, h - 1), clip(y + 1, 0, h - 1)
-    k = arange(K)
-    dx = 0.25 * sign(hm[k, y, xr] - hm[k, y, xl])       # quarter-pixel shift toward the higher neighbour
-    dy = 0.25 * sign(hm[k, yd, x] - hm[k, yu, x])
-    pts = stack([x + dx, y + dy], axis=-1) * STRIDE
-    return apply_affine(inv_affine, pts), hm.reshape(K, -1).max(axis=-1)   # original image coords
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Decide top-down (detect, crop, estimate) vs bottom-up; check visibility annotations and how the metric normalises distance.
@@ -1116,13 +730,13 @@ def decode(hm, inv_affine):                             # hm: [K, h, w]
 
 **1. Task Description**
 
-Estimate per-pixel depth $D \in \mathbb{R}_{>0}^{H \times W}$ from a single RGB image. Monocular depth is ambiguous in scale, so models predict either **metric** depth (metres) or **relative** depth / inverse depth (correct up to scale and shift).
+Predict how far each pixel is from the camera, from a single image. One image cannot reveal absolute scale (a small nearby object looks like a large distant one), so models predict either **metric depth** (real distances in metres) or **relative depth** (correct ordering and shape, but unknown scale and offset).
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]`.
-- Output: `[B, 1, H, W]` depth or disparity (inverse depth).
-- Ground truth: dense or sparse (LiDAR) depth `[B, 1, H, W]` + validity mask.
+- Input: an RGB image.
+- Output: a depth map the same size as the image (sometimes inverse depth).
+- Ground truth may be dense, or sparse (only some pixels have a value, e.g. from LiDAR), with a mask marking which pixels are valid.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1136,34 +750,7 @@ Estimate per-pixel depth $D \in \mathbb{R}_{>0}^{H \times W}$ from a single RGB 
   - Unknown camera intrinsics, which break metric scale.
   - Few training images → foundation models plus light fine-tuning.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def silog_loss(pred, gt, valid, lam=0.85):
-    d = log(pred[valid]) - log(gt[valid])
-    return sqrt((d ** 2).mean() - lam * d.mean() ** 2)
-
-def align_scale_shift(pred, gt, valid):                 # solve min_{s,t} ||s * pred + t - gt||^2
-    A = stack([pred[valid], ones_like(pred[valid])], axis=-1)
-    s, t = least_squares(A, gt[valid])
-    return s * pred + t
-
-model = encoder_decoder(load_pretrained_backbone(PATH), out_channels=1, out_activation=softplus)
-for img, gt in loader(train, transform=joint_geometric_aug):   # colour aug on img only; hflip ok, no vflip
-    valid = (gt > MIN_DEPTH) & (gt < MAX_DEPTH)
-    pred = upsample(model(img), size=gt.shape[-2:], mode="bilinear")
-    loss = silog_loss(pred, gt, valid)
-    loss.backward(); opt.step(); opt.zero_grad()
-
-def depth_metrics(pred, gt, valid):
-    p, g = pred[valid], gt[valid]
-    ratio = maximum(p / g, g / p)
-    return {"abs_rel": mean(abs(p - g) / g),
-            "rmse":    sqrt(mean((p - g) ** 2)),
-            "delta1":  mean(ratio < 1.25)}
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Determine whether evaluation is metric or alignment-invariant (median or least-squares scaling per image).
@@ -1186,16 +773,12 @@ def depth_metrics(pred, gt, valid):
 
 **1. Task Description**
 
-Map a clip $V \in \mathbb{R}^{T \times 3 \times H \times W}$ to labels, temporal segments, per-frame events or text. This requires both spatial and temporal modelling.
+Understand what happens in a video: classify a clip, find when actions start and end, spot the exact moment an event happens, or describe it in text. It needs both appearance (what is in each frame) and time (how things change between frames). A common, cheap approach: extract features from sampled frames with an image model, then put a light temporal model on top.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, T, 3, H, W]` (some models expect `[B, 3, T, H, W]`), with T ≈ 8–32 sampled frames.
-- Output:
-  - Clip classification: `[B, C]`.
-  - Per-frame / event spotting: `[B, T, C]` → timestamps.
-  - Temporal localisation: `[(t_start, t_end, class, score)]`.
-  - Captioning / QA: text.
+- Input: a video, usually sampled down to a fixed number of frames (around 8–32).
+- Output: a class for the clip; per-frame scores turned into event timestamps; time segments (start, end, class, score); or text.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1212,33 +795,7 @@ Map a clip $V \in \mathbb{R}^{T \times 3 \times H \times W}$ to labels, temporal
   - Tolerance-based metrics (an event counts within ±δ seconds).
   - Variable frame rate / resolution; corrupted files.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def sample_indices(n_frames, T, train):
-    if train:                                           # one random frame per equal segment
-        edges = linspace(0, n_frames, T + 1).astype(int)
-        return [randint(edges[i], max(edges[i] + 1, edges[i + 1])) for i in range(T)]
-    return linspace(0, n_frames - 1, T).round().astype(int)
-
-# Option A (fast): frozen image backbone, features cached once, light temporal head
-feats = {}
-for vid in videos:
-    frames = decode_frames(vid, sample_indices(num_frames(vid), 32, train=False))   # RGB
-    feats[vid] = image_backbone(stack(frames))          # [32, d]
-save(feats)
-
-temporal = TransformerEncoder(d, layers=2); cls_head = Linear(d, C)
-for f, y in loader(feats):                              # f: [B, 32, d]
-    logits = cls_head(temporal(f + positional_embedding).mean(axis=1))   # [B, C]
-    loss = cross_entropy(logits, y)
-    loss.backward(); opt.step(); opt.zero_grad()
-
-# Option B (accurate, expensive): end-to-end video transformer on [B, T, 3, H, W]
-# Inference for both: average logits over several temporal clips and spatial crops per video
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Identify clip classification vs localisation / spotting; check video length, fps and event density.
@@ -1262,12 +819,12 @@ for f, y in loader(feats):                              # f: [B, 32, d]
 
 **1. Task Description**
 
-Conditional language modelling: $p(y \mid I) = \prod_t p(y_t \mid y_{<t}, E(I))$, with a visual encoder $E$ and a text decoder (cross-attention to visual tokens, or visual tokens used as a prefix).
+Generate text from an image: captions, transcriptions of written text (OCR), or structured strings such as LaTeX from a formula image or SMILES from a molecule drawing. A vision encoder reads the image, and a text decoder writes the output one token at a time while looking at the image.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: `[B, 3, H, W]` → visual tokens `[B, N, d]`.
-- Output: token ids `ℤ^{B×T}` → string (caption, transcription, markup).
+- Input: an image.
+- Output: a text string (caption, transcription or markup).
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1283,29 +840,7 @@ Conditional language modelling: $p(y \mid I) = \prod_t p(y_t \mid y_{<t}, E(I))$
   - Unusual scripts or vocabularies; handwriting.
   - Rotated, blurred or low-contrast images.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-vision  = load_pretrained_vision_encoder(V_PATH)        # [B, 3, H, W] -> [B, N, dv]
-decoder = load_pretrained_text_decoder(T_PATH)          # cross-attends to visual tokens
-proj    = Linear(dv, decoder.dim)
-
-for img, text in loader(train):
-    vis = proj(vision(img))                             # [B, N, d]
-    ids = tokenize_batch([BOS + t + EOS for t in text], pad_id=PAD_ID)   # [B, T]
-    logits = decoder(ids[:, :-1], encoder_states=vis)   # teacher forcing
-    loss = cross_entropy(logits, ids[:, 1:], ignore_index=PAD_ID, label_smoothing=0.1)
-    loss.backward(); opt.step(); sched.step(); opt.zero_grad()
-
-def describe(img, beams=3, max_len=40):
-    vis = proj(vision(img))
-    cands = beam_search(decoder, vis, start=BOS, end=EOS, beams=beams,
-                        max_len=max_len, length_penalty=1.0, return_all=True)
-    valid = [c for c in cands if passes_validity_check(c)]   # e.g. parsable LaTeX / SMILES
-    return (valid or cands)[0]
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Identify the target type (free-form captions vs structured strings) and the official scorer.
@@ -1332,16 +867,13 @@ def describe(img, beams=3, max_len=40):
 
 **1. Task Description**
 
-Given a text query $q$ and a corpus of document page images $\{P_j\}$, rank pages by relevance. Relevance depends on rendered text, layout, tables, charts and figures, not only on extractable text.
+Given a text query and many document pages stored as images (scanned or rendered PDFs), find the most relevant pages. Relevance can depend on text, layout, tables, charts and figures, so plain text extraction may miss information. Two main approaches: run OCR and then use text retrieval, or use a vision-language model that embeds the page image directly.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: query string; page images `[N, 3, H, W]` (high resolution, often rasterised PDFs).
-- Page representations:
-  - OCR text per page.
-  - Single vector `[N, d]`.
-  - Multi-vector (late interaction) `[N, n_patches, d]`.
-- Output: ranked page ids `[Q, k]`.
+- Input: a query text and page images (high resolution).
+- Page representation: OCR text, one vector per page, or many vectors per page (one per image patch).
+- Output: for each query, a ranked list of page ids.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1358,28 +890,7 @@ Given a text query $q$ and a corpus of document page images $\{P_j\}$, rank page
   - Relevance labelled per page while documents span many pages.
   - nDCG@5-style metrics that reward getting the top few right.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-# Path A: OCR -> text retrieval (robust, cheap)
-page_text = [ocr(p, lang=DOC_LANG) for p in pages]
-text_ranks = {q: hybrid_retrieve(q, page_text) for q in queries}     # BM25 + dense + RRF (see Text Ranking)
-
-# Path B: late interaction over page patches
-page_emb = [l2_normalize(vlm_page_encoder(p)) for p in pages]        # each [n_patches, d]
-
-def maxsim(q_tok, page):                                # q_tok [n_q, d], page [n_p, d]
-    return (q_tok @ page.T).max(axis=1).sum()           # best patch per query token, summed
-
-def search(query, k=5, k_pre=100):
-    q_tok = l2_normalize(vlm_query_encoder(query))      # [n_q, d]
-    pooled = stack([e.mean(axis=0) for e in page_emb])  # cheap first pass: [N, d]
-    cands = topk_indices(pooled @ q_tok.mean(axis=0), k_pre)
-    visual_rank = sorted(cands, key=lambda j: -maxsim(q_tok, page_emb[j]))
-    return reciprocal_rank_fusion([visual_rank, text_ranks[query]])[:k]
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Inspect what pages look like (text-heavy vs visual) and what queries ask.
@@ -1403,12 +914,12 @@ def search(query, k=5, k_pre=100):
 
 **1. Task Description**
 
-Given a document image (or several pages) $P$ and a question $q$, output an answer string $a$, either extracted from the document's text or generated. Combines text, 2D layout and visual cues.
+Answer a question about a document image (invoice, form, report, multi-page PDF). The answer is either copied from text on the page (extractive) or generated (when it needs reformatting or a calculation). Good models combine three signals: what the words say, where they sit on the page, and how the page looks.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: page image `[3, H, W]` + question tokens; for layout-aware models also OCR words with boxes `[(w_i, [x0, y0, x1, y1])]`, boxes normalised to 0–1000.
-- Output: answer string. Extractive models: start / end logits over OCR sub-tokens, `ℝ^{T}` each.
+- Input: page image(s) + a question. Layout-aware models also take the OCR words together with their positions on the page.
+- Output: the answer as a string.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1425,30 +936,7 @@ Given a document image (or several pages) $P$ and a question $q$, output an answ
   - ANLS scoring with a 0.5 cut-off.
   - Non-English documents and no OCR engine available offline.
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def anls(pred, golds, tau=0.5):                         # average normalised Levenshtein similarity
-    best = 0.0
-    for g in golds:
-        p, g = normalize(pred), normalize(g)            # lowercase, collapse whitespace
-        nl = levenshtein(p, g) / max(len(p), len(g), 1)
-        best = max(best, 1 - nl if nl < tau else 0.0)
-    return best
-
-# Extractive, layout-aware
-words, px_boxes = ocr_with_boxes(page)
-boxes = [[int(1000 * x0 / W), int(1000 * y0 / H), int(1000 * x1 / W), int(1000 * y1 / H)]
-         for x0, y0, x1, y1 in px_boxes]                # normalise to 0-1000
-ids, bbox, word_ids = tokenize_with_layout(question, words, boxes, max_len=512)   # one box per sub-token
-start_logits, end_logits = layout_model(ids, bbox, pixel_values=resize(page))
-answer = best_valid_span(start_logits, end_logits, word_ids, words, max_answer_words=20)
-
-# Generative, OCR-free
-answer = ocr_free_model.generate(image=page, prompt=f"<question>{question}</question><answer>")
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Measure answer coverage: how often does the gold answer appear verbatim in the OCR text? High → extractive; low → generative.
@@ -1471,12 +959,12 @@ answer = ocr_free_model.generate(image=page, prompt=f"<question>{question}</ques
 
 **1. Task Description**
 
-Learn $p(a \mid I, q)$: answer a natural-language question about an image, with the answer chosen from a fixed vocabulary (classification) or generated as free text.
+Answer a natural-language question about an image (*"How many dogs are there?"*, *"What colour is the car?"*). Either pick the answer from a fixed list of common answers (classification), or generate it as text with a vision-language model.
 
-**2. Input & Output Signatures**
+**2. Input & Output**
 
-- Input: image `[B, 3, H, W]`, question ids `ℤ^{B×T}`.
-- Output: logits over an answer vocabulary `[B, A]` (A ≈ a few thousand), or generated answer tokens.
+- Input: an image + a question.
+- Output: one short answer: a word, a number, yes/no, or a short phrase.
 
 **3. Task Variants & Olympic AI Framing**
 
@@ -1490,35 +978,9 @@ Learn $p(a \mid I, q)$: answer a natural-language question about an image, with 
   - Strong language priors (e.g. "yes" dominates yes/no questions); test sets may be rebalanced against them.
   - Counting and spatial-reasoning questions.
   - Specialised imagery with small datasets.
-  - Several annotator answers per question → soft targets and the VQA accuracy metric $\min(\#\text{matches}/3, 1)$.
+  - Several annotator answers per question → soft targets, and the VQA accuracy metric (an answer counts as fully correct if at least 3 annotators gave it).
 
-**4. Baseline Pipeline (Pseudo-code)**
-
-```python
-def soft_target(answers, vocab):                        # VQA-accuracy-style soft labels
-    t = zeros(len(vocab))
-    for a, n in count(normalize_answer(a) for a in answers).items():
-        if a in vocab:
-            t[vocab[a]] = min(n / 3, 1.0)
-    return t
-
-img_enc = load_pretrained_vision_encoder(V_PATH)        # -> [B, N, d]
-txt_enc = load_pretrained_text_encoder(T_PATH)          # -> [B, T, d]
-fusion  = CrossAttentionBlocks(d, layers=2)             # text attends to image
-head    = MLP(d, len(vocab))
-
-for img, q, answer_lists in loader(train):
-    h = fusion(query=txt_enc(tokenize(q)), context=img_enc(img))[:, 0]   # [B, d]
-    targets = stack([soft_target(a, vocab) for a in answer_lists])       # [B, A]
-    loss = binary_cross_entropy_with_logits(head(h), targets)
-    loss.backward(); opt.step(); opt.zero_grad()
-
-# Generative alternative with a vision-language model
-answer = normalize_answer(vlm.generate(image=img,
-                                       prompt=f"Question: {q}\nAnswer with one word or number:"))
-```
-
-**5. Strategy, Score Boosters & Pitfalls**
+**4. Strategy, Score Boosters & Pitfalls**
 
 - **Problem-Solving Strategy:**
   1. Analyse answers: vocabulary size and coverage, distribution by question type (yes/no, number, other).
